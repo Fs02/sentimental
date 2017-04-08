@@ -163,7 +163,7 @@ void learn_bn(const sm::TermDocFeature &train_feature, const sm::TermDocFeature 
         bn.add_node(v);
     bn.graph().max_adjacents(3);
 
-    pgm::SimulatedAnnealing annealing;
+    pgm::SimulatedAnnealing annealing(20000);
     annealing.init_as_naive_bayes("{{class}}");
     annealing.verbose(true);
     pgm::Fcll score(dataset, "{{class}}");
@@ -284,7 +284,25 @@ int main(int argc, char *argv[])
     sm::FeatureSelection fselect(train_feature, sm::selection::Chi2);
     std::cout << fselect;
 
+	/*
+	std::cout << "\n\n======50 features======\n";
     learn_bn(fselect.best(50), test_feature, "50");
+
+	std::cout << "\n\n======250 features======\n";
+    learn_bn(fselect.best(250), test_feature, "250");
+
+	std::cout << "\n\n======500 features======\n";
+    learn_bn(fselect.best(500), test_feature, "500");
+
+	std::cout << "\n\n======1500 features======\n";
+    learn_bn(fselect.best(1500), test_feature, "1500");
+    */
+
+	std::cout << "\n\n======3000 features======\n";
+    learn_bn(fselect.best(3000), test_feature, "3000");
+
+	std::cout << "\n\n======all features======\n";
+    learn_bn(train_feature, test_feature, "all");
 
     return 0;
 }
