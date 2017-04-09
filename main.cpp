@@ -179,6 +179,7 @@ void learn_bn(const sm::TermDocFeature &train_feature, const sm::TermDocFeature 
 
     std::cout << bn << std::endl;
 
+    /*
     {
         std::cout << "\n\n==> Testing on Training Data" << std::endl;
         std::ofstream out(name + "_train.csv");
@@ -199,6 +200,7 @@ void learn_bn(const sm::TermDocFeature &train_feature, const sm::TermDocFeature 
         std::cout << "Correct : " << correct << "/" << dataset.size() << "\n";
         std::cout << "Accuracy : " << correct/double(dataset.size()) << "\n";
     }
+    */
 
     {
         std::size_t start = dataset.size();
@@ -260,7 +262,7 @@ void cross_validation(std::size_t fold, const std::vector<std::string> &tweets, 
         std::vector<std::string> test_label;
         for (std::size_t i = 0; i < order.size(); ++i)
         {
-            if (i <= k * segment || i > k * segment)
+            if (i <= k * segment || i > (k + 1) * segment)
             {
                 train_tweet.push_back(tweets[order[i]]);
                 train_label.push_back(labels[order[i]]);
@@ -301,7 +303,7 @@ int main(int argc, char *argv[])
     table.update("tweet", clean);
     table.save("clean.csv");
 
-    cross_validation(10, clean, table["emotion"], 10.0);
+    cross_validation(10, clean, table["emotion"], 100.0);
 
     return 0;
 
