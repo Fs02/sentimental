@@ -54,6 +54,23 @@ TermDocFeature FeatureSelection::biggest_diff()
     return best(k);
 }
 
+TermDocFeature FeatureSelection::range(double min, double max)
+{
+    std::unordered_map<std::string, TermDoc::Doc> selected;
+
+    for (auto it = weights_.rbegin(); it != weights_.rend(); ++it)
+    {
+        if (it->first >= min && it->first <= max)
+        {
+            auto term_it = feature_.get().storage().find(it->second);
+            if (term_it != feature_.get().storage().end())
+                selected[it->second] = term_it->second;
+        }
+    }
+
+    return TermDocFeature(feature_.labels(), TermDoc(selected));
+}
+
 std::ostream &sm::operator <<(std::ostream &os, const FeatureSelection &fs)
 {
     const int max = 100;

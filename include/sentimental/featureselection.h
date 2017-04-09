@@ -5,6 +5,7 @@
 #include <vector>
 #include <functional>
 #include <iostream>
+#include <limits>
 #include <sentimental/feature.h>
 
 namespace sm {
@@ -18,6 +19,7 @@ namespace sm {
         TermDocFeature best(std::size_t k);
         TermDocFeature percentage(double percentage);
         TermDocFeature biggest_diff();
+        TermDocFeature range(double min = 0.0, double max = std::numeric_limits<double>::infinity());
 
         friend std::ostream &operator <<(std::ostream &os, const FeatureSelection &fs);
 
