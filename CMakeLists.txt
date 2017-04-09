@@ -3,6 +3,7 @@ project(sentimental)
 
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
+include(CMakeToolsHelpers OPTIONAL)
 
 set (SOURCES
     ${PROJECT_SOURCE_DIR}/src/sentimental/variable.cpp

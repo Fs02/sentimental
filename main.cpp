@@ -1,4 +1,5 @@
 #include <iostream>
+#include <algorithm>
 #include <sentimental/table.h>
 #include <sentimental/texttransform.h>
 #include <sentimental/feature.h>
@@ -23,6 +24,7 @@
 #include <fstream>
 #include <iomanip>
 #include <pgm/pgm.h>
+#include <random>
 
 void test_transform(sm::TextTransform &transform)
 {
@@ -239,6 +241,45 @@ void learn_bn(const sm::TermDocFeature &train_feature, const sm::TermDocFeature 
     }
 }
 
+void cross_validation(std::size_t fold, const std::vector<std::string> &tweets, const std::vector<std::string> &labels, 
+    double critical_value, int seed = 1)
+{
+    // shuffle dataset order
+    std::vector<int> order(labels.size()) ;
+    std::iota (std::begin(order), std::end(order), 0);
+    std::mt19937 g(seed);
+    std::shuffle(order.begin(), order.end(), g);
+
+    // perform k-cv
+    const std::size_t segment = labels.size()/fold;
+    for (std::size_t k = 0; k < fold; ++k)
+    {
+        std::vector<std::string> train_tweet;
+        std::vector<std::string> train_label;
+        std::vector<std::string> test_tweet;
+        std::vector<std::string> test_label;
+        for (std::size_t i = 0; i < order.size(); ++i)
+        {
+            if (i <= k * segment || i > k * segment)
+            {
+                train_tweet.push_back(tweets[order[i]]);
+                train_label.push_back(labels[order[i]]);
+            }
+            else
+            {
+                test_tweet.push_back(tweets[order[i]]);
+                test_label.push_back(labels[order[i]]);
+            }
+        }
+        auto train_feature = sm::TermDocFeature(train_label, train_tweet);
+        auto test_feature = sm::TermDocFeature(test_label, test_tweet);
+
+        sm::FeatureSelection fselect(train_feature, sm::selection::Chi2);
+
+        learn_bn(fselect.range(critical_value), test_feature, "fold-" + std::to_string(k) + "-cv-" + std::to_string(critical_value));
+    }
+}
+
 int main(int argc, char *argv[])
 {
     sm::TextTransform transform;
@@ -259,6 +300,10 @@ int main(int argc, char *argv[])
     auto clean = transform(table["tweet"]);
     table.update("tweet", clean);
     table.save("clean.csv");
+
+    cross_validation(10, clean, table["emotion"], 10.0);
+
+    return 0;
 
     double ratio = 0.75;
     std::vector<std::string> train_tweet;
@@ -296,13 +341,13 @@ int main(int argc, char *argv[])
 
 	std::cout << "\n\n======1500 features======\n";
     learn_bn(fselect.best(1500), test_feature, "1500");
-    */
 
 	std::cout << "\n\n======3000 features======\n";
     learn_bn(fselect.best(3000), test_feature, "3000");
 
 	std::cout << "\n\n======all features======\n";
     learn_bn(train_feature, test_feature, "all");
+    */
 
     return 0;
 }
