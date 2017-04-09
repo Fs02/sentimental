@@ -275,10 +275,14 @@ void cross_validation(std::size_t fold, const std::vector<std::string> &tweets, 
         }
         auto train_feature = sm::TermDocFeature(train_label, train_tweet);
         auto test_feature = sm::TermDocFeature(test_label, test_tweet);
+        std::cout << "original train vocab : " << train_feature.get().storage().size() << std::endl;;
 
         sm::FeatureSelection fselect(train_feature, sm::selection::Chi2);
 
-        learn_bn(fselect.range(critical_value), test_feature, "fold-" + std::to_string(k) + "-cv-" + std::to_string(critical_value));
+        auto selected = fselect.range(critical_value);
+        std::cout << "selected train vocab : " << selected.get().storage().size() << std::endl;;
+
+        learn_bn(selected, test_feature, "fold-" + std::to_string(k) + "-cv-" + std::to_string(critical_value));
     }
 }
 
@@ -286,24 +290,28 @@ int main(int argc, char *argv[])
 {
     sm::TextTransform transform;
     transform.add(sm::transform::HTMLEscape());
+    transform.add(sm::transform::Blacklist());
     transform.add(sm::transform::Apostrophe());
     //transform.add(sm::transform::Emoticon());
     transform.add(sm::transform::Username());
     transform.add(sm::transform::Url());
     transform.add(sm::transform::Money());
     transform.add(sm::transform::Number());
+    transform.add(sm::transform::Blacklist());
     transform.add(sm::transform::Repeats());
+    transform.add(sm::transform::Blacklist());
     transform.add(sm::transform::Stem());
+    transform.add(sm::transform::Blacklist());
     transform.add(sm::transform::Punctuation(true));
     transform.add(sm::transform::Hashtag());
-    transform.add(sm::transform::Rare());
+    //transform.add(sm::transform::Rare());
 
     auto table = sm::Table::load("Jan9-2012-tweets-clean.csv");
     auto clean = transform(table["tweet"]);
     table.update("tweet", clean);
     table.save("clean.csv");
 
-    cross_validation(10, clean, table["emotion"], 100.0);
+    cross_validation(10, clean, table["emotion"], 12.8325);
 
     return 0;
 

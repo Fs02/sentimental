@@ -15,6 +15,7 @@ set (SOURCES
     ${PROJECT_SOURCE_DIR}/src/sentimental/transform/hashtag.cpp
     ${PROJECT_SOURCE_DIR}/src/sentimental/transform/apostrophe.cpp
     ${PROJECT_SOURCE_DIR}/src/sentimental/transform/emoticon.cpp
+    ${PROJECT_SOURCE_DIR}/src/sentimental/transform/blacklist.cpp
     ${PROJECT_SOURCE_DIR}/src/sentimental/transform/htmlescape.cpp
     ${PROJECT_SOURCE_DIR}/src/sentimental/transform/money.cpp
     ${PROJECT_SOURCE_DIR}/src/sentimental/transform/number.cpp
@@ -61,6 +62,7 @@ set (HEADERS
     ${PROJECT_SOURCE_DIR}/include/sentimental/texttransform.h
     ${PROJECT_SOURCE_DIR}/include/sentimental/transform/apostrophe.h
     ${PROJECT_SOURCE_DIR}/include/sentimental/transform/emoticon.h
+    ${PROJECT_SOURCE_DIR}/include/sentimental/transform/blacklist.h
     ${PROJECT_SOURCE_DIR}/include/sentimental/transform/htmlescape.h
     ${PROJECT_SOURCE_DIR}/include/sentimental/transform/money.h
     ${PROJECT_SOURCE_DIR}/include/sentimental/transform/number.h

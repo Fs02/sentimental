@@ -32,6 +32,7 @@ namespace sm {
 
 #include <sentimental/transform/apostrophe.h>
 #include <sentimental/transform/emoticon.h>
+#include <sentimental/transform/blacklist.h>
 #include <sentimental/transform/hashtag.h>
 #include <sentimental/transform/htmlescape.h>
 #include <sentimental/transform/money.h>
