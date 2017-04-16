@@ -317,6 +317,52 @@ void timelapse_bn(const sm::TermDocFeature &train_feature, const sm::TermDocFeat
     }
 }
 
+void peek_cv(std::size_t fold, std::size_t k, const std::vector<std::string> &tweets, const std::vector<std::string> &labels, 
+    double critical_value, int seed = 1)
+{
+    // shuffle dataset order
+    std::vector<int> order(labels.size()) ;
+    std::iota (std::begin(order), std::end(order), 0);
+    std::mt19937 g(seed);
+    std::shuffle(order.begin(), order.end(), g);
+
+    // perform peek k-cv
+    const std::size_t segment = labels.size()/fold;
+    std::vector<std::string> train_tweet;
+    std::vector<std::string> train_label;
+    std::vector<std::string> test_tweet;
+    std::vector<std::string> test_label;
+    for (std::size_t i = 0; i < order.size(); ++i)
+    {
+        if (i <= k * segment || i > (k + 1) * segment)
+        {
+            train_tweet.push_back(tweets[order[i]]);
+            train_label.push_back(labels[order[i]]);
+        }
+        else
+        {
+            test_tweet.push_back(tweets[order[i]]);
+            test_label.push_back(labels[order[i]]);
+        }
+    }
+    auto train_feature = sm::TermDocFeature(train_label, train_tweet);
+    auto test_feature = sm::TermDocFeature(test_label, test_tweet);
+    std::cout << "original train vocab : " << train_feature.get().storage().size() << std::endl;;
+
+    sm::FeatureSelection fselect(train_feature, sm::selection::Chi2);
+
+    auto selected = fselect.range(critical_value);
+    std::cout << "selected train vocab : " << selected.get().storage().size() << std::endl;;
+
+    for (std::size_t iter = 100; iter <= 5000; iter += 100)
+    {
+        std::cout << "======================================\n";
+        std::cout << "ITER MAX = " << iter << "\n";
+        std::cout << "======================================\n";
+        timelapse_bn(selected, test_feature, "bn-fold-" + std::to_string(k) + "-cv-" + std::to_string(critical_value), iter);
+    }
+}
+
 void learn_bn(const sm::TermDocFeature &train_feature, const sm::TermDocFeature &test_feature, const std::string &name)
 {
     std::cout << "preparing datasets" << std::endl;
@@ -464,7 +510,8 @@ int main(int argc, char *argv[])
     table.update("tweet", clean);
     table.save("clean.csv");
 
-    cross_validation(10, clean, table["emotion"], 15.0863);
+    // cross_validation(10, clean, table["emotion"], 15.0863);
+    peek_cv(10, 1, clean, table["emotion"], 15.0863);
 
     return 0;
 
