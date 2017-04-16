@@ -144,7 +144,7 @@ void export_blip_dat(const sm::TermDocFeature &feature, const std::string &path)
     }
 }
 
-void learn_bn(const sm::TermDocFeature &train_feature, const sm::TermDocFeature &test_feature, const std::string &name)
+void learn_nb(const sm::TermDocFeature &train_feature, const sm::TermDocFeature &test_feature, const std::string &name)
 {
     std::cout << "preparing datasets" << std::endl;
     pgm::Dataset dataset;
@@ -163,33 +163,108 @@ void learn_bn(const sm::TermDocFeature &train_feature, const sm::TermDocFeature 
     pgm::Bayesnet bn;
     for (auto v : dataset.variables())
         bn.add_node(v);
-    bn.graph().max_adjacents(3);
 
-    pgm::SimulatedAnnealing annealing(20000);
+    pgm::SimulatedAnnealing annealing(0);
+    annealing.init_as_naive_bayes("{{class}}");
+    annealing.verbose(false);
+    pgm::Fcll score(dataset, "{{class}}");
+    pgm::SampleEstimate estimate;
+
+    std::cout << "[fake] searching best structure" << std::endl;
+    annealing(bn, score);
+
+    std::cout << "estimating distributions" << std::endl;
+    estimate(bn, dataset);
+    pgm::write_dot(bn, name + ".dot");
+
+    //std::cout << bn << std::endl;
+
+    {
+        std::size_t start = dataset.size();
+        for (std::size_t i = 0; i < test_feature.labels().size(); ++i)
+        {
+            dataset.set("{{class}}", start+i, test_feature.labels()[i]);
+        }
+        for (auto w : test_feature.get().storage())
+        {
+            if (!dataset.add_variable(w.first, {"F", "T"}))
+            {
+		        for (auto doc : w.second)
+		            dataset.set(w.first, start+doc.first, "T");
+            }
+            else
+            {
+            	// if unused, remvoe it
+            	dataset.rem_variable(w.first);
+            }
+        }
+
+        std::cout << "==> Testing on Test Data" << std::endl;
+        std::ofstream out(name + "_test.csv");
+        out << "actual,predict\n";
+        std::size_t correct = 0;
+        for (std::size_t i = start; i < dataset.size(); ++i)
+        {
+            std::cout << "[" << i+1-start << "/" << dataset.size()-start << "] testing model..." << "\r" << std::flush;
+            auto row = dataset[i];
+
+            auto actual = row["{{class}}"];
+            auto predict = bn.infer("{{class}}", row);
+            out << actual << "," << predict << "\n";
+            if (actual == predict)
+                ++correct;
+        }
+        std::cout << std::endl;
+        std::cout << "Correct : " << correct << "/" << dataset.size()-start << "\n";
+        std::cout << "Accuracy : " << correct/double(dataset.size()-start) << "\n";
+    }
+}
+
+void timelapse_bn(const sm::TermDocFeature &train_feature, const sm::TermDocFeature &test_feature, const std::string &name, std::size_t max_iter)
+{
+    std::cout << "preparing datasets" << std::endl;
+    pgm::Dataset dataset;
+    for (std::size_t i = 0; i < train_feature.labels().size(); ++i)
+    {
+        dataset.set("{{class}}", i, train_feature.labels()[i]);
+    }
+    for (auto w : train_feature.get().storage())
+    {
+        dataset.add_variable(w.first, {"F", "T"});
+        for (auto doc : w.second)
+            dataset.set(w.first, doc.first, "T");
+    }
+
+    std::cout << "constructing bn" << std::endl;
+    pgm::Bayesnet bn;
+    for (auto v : dataset.variables())
+        bn.add_node(v);
+    bn.graph().max_adjacents(2);
+
+    pgm::SimulatedAnnealing annealing(max_iter);
     annealing.init_as_naive_bayes("{{class}}");
     annealing.verbose(true);
     pgm::Fcll score(dataset, "{{class}}");
     pgm::SampleEstimate estimate;
 
     std::cout << "searching best structure" << std::endl;
-    annealing(bn, score);
+    double fitness = annealing(bn, score);
     std::cout << "estimating distributions" << std::endl;
     estimate(bn, dataset);
     pgm::write_dot(bn, name + ".dot");
 
-    std::cout << bn << std::endl;
+    //std::cout << bn << std::endl;
 
-    /*
     {
-        std::cout << "\n\n==> Testing on Training Data" << std::endl;
-        std::ofstream out(name + "_train.csv");
+        std::cout << "==> Testing on Train Data" << std::endl;
+        std::ofstream out(name + "fitness-"+ std::to_string(fitness) + "_train.csv");
         out << "actual,predict\n";
         std::size_t correct = 0;
         for (std::size_t i = 0; i < dataset.size(); ++i)
         {
             std::cout << "[" << i+1 << "/" << dataset.size() << "] testing model..." << "\r" << std::flush;
             auto row = dataset[i];
-            
+
             auto actual = row["{{class}}"];
             auto predict = bn.infer("{{class}}", row);
             out << actual << "," << predict << "\n";
@@ -198,9 +273,8 @@ void learn_bn(const sm::TermDocFeature &train_feature, const sm::TermDocFeature 
         }
         std::cout << std::endl;
         std::cout << "Correct : " << correct << "/" << dataset.size() << "\n";
-        std::cout << "Accuracy : " << correct/double(dataset.size()) << "\n";
+        std::cout << "Accuracy : " << correct/double(dataset.size()) << "\n";        
     }
-    */
 
     {
         std::size_t start = dataset.size();
@@ -222,7 +296,83 @@ void learn_bn(const sm::TermDocFeature &train_feature, const sm::TermDocFeature 
             }
         }
 
-        std::cout << "\n\n==> Testing on Test Data" << std::endl;
+        std::cout << "==> Testing on Test Data" << std::endl;
+        std::ofstream out(name + "fitness-"+ std::to_string(fitness) + "_test.csv");
+        out << "actual,predict\n";
+        std::size_t correct = 0;
+        for (std::size_t i = start; i < dataset.size(); ++i)
+        {
+            std::cout << "[" << i+1-start << "/" << dataset.size()-start << "] testing model..." << "\r" << std::flush;
+            auto row = dataset[i];
+
+            auto actual = row["{{class}}"];
+            auto predict = bn.infer("{{class}}", row);
+            out << actual << "," << predict << "\n";
+            if (actual == predict)
+                ++correct;
+        }
+        std::cout << std::endl;
+        std::cout << "Correct : " << correct << "/" << dataset.size()-start << "\n";
+        std::cout << "Accuracy : " << correct/double(dataset.size()-start) << "\n";        
+    }
+}
+
+void learn_bn(const sm::TermDocFeature &train_feature, const sm::TermDocFeature &test_feature, const std::string &name)
+{
+    std::cout << "preparing datasets" << std::endl;
+    pgm::Dataset dataset;
+    for (std::size_t i = 0; i < train_feature.labels().size(); ++i)
+    {
+        dataset.set("{{class}}", i, train_feature.labels()[i]);
+    }
+    for (auto w : train_feature.get().storage())
+    {
+        dataset.add_variable(w.first, {"F", "T"});
+        for (auto doc : w.second)
+            dataset.set(w.first, doc.first, "T");
+    }
+
+    std::cout << "constructing bn" << std::endl;
+    pgm::Bayesnet bn;
+    for (auto v : dataset.variables())
+        bn.add_node(v);
+    bn.graph().max_adjacents(3);
+
+    pgm::SimulatedAnnealing annealing(5000);
+    annealing.init_as_naive_bayes("{{class}}");
+    annealing.verbose(false);
+    pgm::Fcll score(dataset, "{{class}}");
+    pgm::SampleEstimate estimate;
+
+    std::cout << "searching best structure" << std::endl;
+    annealing(bn, score);
+    std::cout << "estimating distributions" << std::endl;
+    estimate(bn, dataset);
+    pgm::write_dot(bn, name + ".dot");
+
+    //std::cout << bn << std::endl;
+
+    {
+        std::size_t start = dataset.size();
+        for (std::size_t i = 0; i < test_feature.labels().size(); ++i)
+        {
+            dataset.set("{{class}}", start+i, test_feature.labels()[i]);
+        }
+        for (auto w : test_feature.get().storage())
+        {
+            if (!dataset.add_variable(w.first, {"F", "T"}))
+            {
+		        for (auto doc : w.second)
+		            dataset.set(w.first, start+doc.first, "T");            	
+            }
+            else
+            {
+            	// if unused, remvoe it
+            	dataset.rem_variable(w.first);
+            }
+        }
+
+        std::cout << "==> Testing on Test Data" << std::endl;
         std::ofstream out(name + "_test.csv");
         out << "actual,predict\n";
         std::size_t correct = 0;
@@ -282,7 +432,10 @@ void cross_validation(std::size_t fold, const std::vector<std::string> &tweets, 
         auto selected = fselect.range(critical_value);
         std::cout << "selected train vocab : " << selected.get().storage().size() << std::endl;;
 
-        learn_bn(selected, test_feature, "fold-" + std::to_string(k) + "-cv-" + std::to_string(critical_value));
+        std::cout << "\n\n====> naive bayes" << std::endl;
+        learn_nb(selected, test_feature, "nb-fold-" + std::to_string(k) + "-cv-" + std::to_string(critical_value));
+        std::cout << "\n\n====> bayes net" << std::endl;
+        learn_bn(selected, test_feature, "bn-fold-" + std::to_string(k) + "-cv-" + std::to_string(critical_value));
     }
 }
 
@@ -311,7 +464,7 @@ int main(int argc, char *argv[])
     table.update("tweet", clean);
     table.save("clean.csv");
 
-    cross_validation(10, clean, table["emotion"], 12.8325);
+    cross_validation(10, clean, table["emotion"], 15.0863);
 
     return 0;
 
