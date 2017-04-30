@@ -50,6 +50,57 @@ void generate_mood_dataset(const std::vector<std::string> &text, const std::vect
     }
 }
 
+void hybrid(std::size_t fold, std::vector<std::pair<std::string, std::string>> &arcs, const std::vector<std::string> &texts, const std::vector<std::string> &labels, int seed = 1)
+{
+    std::vector<int> order(labels.size()) ;
+    std::iota (std::begin(order), std::end(order), 0);
+    std::mt19937 g(seed);
+    std::shuffle(order.begin(), order.end(), g);
+
+    // perform k-cv
+    const std::size_t segment = labels.size()/fold;
+    for (std::size_t k = 0; k < fold; ++k)
+    {
+        std::vector<std::string> train_tweet;
+        std::vector<std::string> train_label;
+        std::vector<std::string> test_tweet;
+        std::vector<std::string> test_label;
+        for (std::size_t i = 0; i < order.size(); ++i)
+        {
+            if (i <= k * segment || i > (k + 1) * segment)
+            {
+                train_tweet.push_back(texts[order[i]]);
+                train_label.push_back(labels[order[i]]);
+            }
+            else
+            {
+                test_tweet.push_back(texts[order[i]]);
+                test_label.push_back(labels[order[i]]);
+            }
+        }
+        auto train_feature = sm::TermDocFeature(train_label, train_tweet);
+        pgm::Dataset train_dataset; // TODO generate
+        pgm::Dataset test_dataset; // TODO generate
+
+        // bayesnet section
+        pgm::Bayesnet bn;
+        bn.add_node("emotion", {":: fear", ":: surprise", ":: joy", ":: sadness", ":: anger", ":: disgust"});
+        bn.add_node("positive", {"true", "false"});
+        bn.add_node("negative", {"true", "false"});
+        for (auto arc : arcs)
+        {
+            bn.add_arc(arc.first, arc.second);
+        }
+
+        pgm::SampleEstimate estimate;
+        estimate(bn, train_dataset);
+
+        // multinomial naive bayes section
+        sm::NaiveBayes nb;
+        nb.train(train_feature);
+    }
+}
+
 void test_transform(sm::TextTransform &transform)
 {
     std::cout << transform("I i I I&apos;m not http://google.com https:://google.com a supreme &quot;&amp; @aikazm #love leader &lt;3 &gt;&gt;who wants to get to sleep.&quot;") << "\n";
