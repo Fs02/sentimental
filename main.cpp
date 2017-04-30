@@ -50,8 +50,19 @@ void generate_mood_dataset(const std::vector<std::string> &text, const std::vect
     }
 }
 
-void hybrid(std::size_t fold, std::vector<std::pair<std::string, std::string>> &arcs, const std::vector<std::string> &texts_emot, const std::vector<std::string> &texts, const std::vector<std::string> &labels, int seed = 1)
+void hybrid(const std::string &name, std::size_t fold, const std::vector<std::pair<std::string, std::string>> &arcs, const std::vector<std::string> &texts_emot, const std::vector<std::string> &texts, const std::vector<std::string> &labels, int seed = 1)
 {
+    // generate graph
+    {
+        std::ofstream out(name + ".dot");
+        out << "digraph { subgraph cluster_0 { label=\"tweet\"; word; } emotion; positive; negative;";
+        for (auto arc : arcs)
+        {
+            out << arc.first << " -> " << arc.second << "; ";
+        }
+        out << " }";
+    }
+
     std::vector<int> order(labels.size()) ;
     std::iota (std::begin(order), std::end(order), 0);
     std::mt19937 g(seed);
@@ -120,7 +131,7 @@ void hybrid(std::size_t fold, std::vector<std::pair<std::string, std::string>> &
         nb.train(train_feature);
 
         std::cout << "==> Testing on Test Data" << std::endl;
-        std::ofstream out(std::to_string(k) + "_test.csv");
+        std::ofstream out(name + "_" + std::to_string(k) + "_test.csv");
         out << "actual,predict\n";
         std::size_t correct = 0;
         for (std::size_t i = 0; i < test_label.size(); ++i)
@@ -616,38 +627,113 @@ void cross_validation(std::size_t fold, const std::vector<std::string> &tweets, 
 
 int main(int argc, char *argv[])
 {
-    sm::TextTransform transform;
-    transform.add(sm::transform::HTMLEscape());
-    //transform.add(sm::transform::Blacklist());
-    transform.add(sm::transform::Apostrophe());
-    transform.add(sm::transform::Emoticon());
-    transform.add(sm::transform::Username());
-    transform.add(sm::transform::Url());
-    transform.add(sm::transform::Money());
-    transform.add(sm::transform::Number());
-    //transform.add(sm::transform::Blacklist());
-    transform.add(sm::transform::Repeats());
-    transform.add(sm::transform::Blacklist());
-    transform.add(sm::transform::Stem());
-    transform.add(sm::transform::Blacklist());
-    transform.add(sm::transform::Punctuation(true));
-    transform.add(sm::transform::Hashtag());
-    //transform.add(sm::transform::Rare());
-
     auto table = sm::Table::load("Jan9-2012-tweets-clean.csv");
-    auto clean = transform(table["tweet"]);
+    std::vector<std::string> clean;
+    std::vector<std::string> emottag;
 
-    //generate_mood_dataset(clean, table["emotion"], "mood.csv");
+    {
+        sm::TextTransform transform;
+        transform.add(sm::transform::HTMLEscape());
+        //transform.add(sm::transform::Blacklist());
+        transform.add(sm::transform::Apostrophe());
+        // transform.add(sm::transform::Emoticon());
+        transform.add(sm::transform::Username());
+        transform.add(sm::transform::Url());
+        transform.add(sm::transform::Money());
+        transform.add(sm::transform::Number());
+        //transform.add(sm::transform::Blacklist());
+        transform.add(sm::transform::Repeats());
+        transform.add(sm::transform::Blacklist());
+        transform.add(sm::transform::Stem());
+        transform.add(sm::transform::Blacklist());
+        transform.add(sm::transform::Punctuation(true));
+        transform.add(sm::transform::Hashtag());
+        //transform.add(sm::transform::Rare());
 
-    table.update("tweet", clean);
-    table.save("clean.csv");
+        clean = transform(table["tweet"]);
+    }
+
+    {
+        sm::TextTransform transform;
+        transform.add(sm::transform::HTMLEscape());
+        //transform.add(sm::transform::Blacklist());
+        transform.add(sm::transform::Apostrophe());
+        transform.add(sm::transform::Emoticon());
+        transform.add(sm::transform::Username());
+        transform.add(sm::transform::Url());
+        transform.add(sm::transform::Money());
+        transform.add(sm::transform::Number());
+        //transform.add(sm::transform::Blacklist());
+        transform.add(sm::transform::Repeats());
+        transform.add(sm::transform::Blacklist());
+        transform.add(sm::transform::Stem());
+        transform.add(sm::transform::Blacklist());
+        transform.add(sm::transform::Punctuation(true));
+        transform.add(sm::transform::Hashtag());
+        //transform.add(sm::transform::Rare());
+
+        emottag = transform(table["tweet"]);
+    }
+
+    // hybrid(5, {{"positive", "emotion"}, {"negative", "emotion"}}, emottag, clean, table["emotion"]);
+
+    const std::string E = "emotion";
+    const std::string P = "emotion";
+    const std::string N = "emotion";
+
+    hybrid("1", 5, {}, emottag, clean, table["emotion"]);
+
+    hybrid("2", 5, {{E, P}}, emottag, clean, table["emotion"]);
+    hybrid("3", 5, {{E, P}, {E, N}}, emottag, clean, table["emotion"]);
+    hybrid("4", 5, {{E, P}, {N, E}}, emottag, clean, table["emotion"]);
+    hybrid("5", 5, {{E, P}, {E, N}, {N, P}}, emottag, clean, table["emotion"]);
+    hybrid("6", 5, {{E, P}, {E, N}, {P, N}}, emottag, clean, table["emotion"]);
+    hybrid("7", 5, {{E, P}, {N, E}, {N, P}}, emottag, clean, table["emotion"]);
+
+    hybrid("8", 5, {{P, E}}, emottag, clean, table["emotion"]);
+    hybrid("9", 5, {{P, E}, {N, E}}, emottag, clean, table["emotion"]);
+    hybrid("10", 5, {{P, E}, {E, N}}, emottag, clean, table["emotion"]);
+    hybrid("11", 5, {{P, E}, {N, E}, {P, N}}, emottag, clean, table["emotion"]);
+    hybrid("12", 5, {{P, E}, {N, E}, {N, P}}, emottag, clean, table["emotion"]);
+    hybrid("13", 5, {{P, E}, {E, N}, {P, N}}, emottag, clean, table["emotion"]);
+
+    hybrid("14", 5, {{P, N}}, emottag, clean, table["emotion"]);
+    hybrid("15", 5, {{P, N}, {P, E}}, emottag, clean, table["emotion"]);
+    hybrid("16", 5, {{P, N}, {E, P}}, emottag, clean, table["emotion"]);
+    hybrid("17", 5, {{P, N}, {P, E}, {E, N}}, emottag, clean, table["emotion"]);
+    hybrid("18", 5, {{P, N}, {P, E}, {N, E}}, emottag, clean, table["emotion"]);
+    hybrid("19", 5, {{P, N}, {E, P}, {E, N}}, emottag, clean, table["emotion"]);
+
+    hybrid("20", 5, {{N, P}}, emottag, clean, table["emotion"]);
+    hybrid("21", 5, {{N, P}, {E, P}}, emottag, clean, table["emotion"]);
+    hybrid("22", 5, {{N, P}, {P, E}}, emottag, clean, table["emotion"]);
+    // hybrid("23", 5, {{N, P}, {E, P}, {N, E}}, emottag, clean, table["emotion"]);
+    // hybrid("24", 5, {{N, P}, {E, P}, {E, N}}, emottag, clean, table["emotion"]);
+    // hybrid("25", 5, {{N, P}, {P, E}, {N, E}}, emottag, clean, table["emotion"]);
+
+    hybrid("26", 5, {{N, E}}, emottag, clean, table["emotion"]);
+    hybrid("27", 5, {{N, E}, {N, P}}, emottag, clean, table["emotion"]);
+    hybrid("28", 5, {{N, E}, {P, N}}, emottag, clean, table["emotion"]);
+    // hybrid("29", 5, {{N, E}, {N, P}, {P, E}}, emottag, clean, table["emotion"]);
+    // hybrid("30", 5, {{N, E}, {N, P}, {E, P}}, emottag, clean, table["emotion"]);
+    // hybrid("31", 5, {{N, E}, {P, N}, {P, E}}, emottag, clean, table["emotion"]);
+
+    hybrid("32", 5, {{E, N}}, emottag, clean, table["emotion"]);
+    hybrid("33", 5, {{E, N}, {P, N}}, emottag, clean, table["emotion"]);
+    hybrid("34", 5, {{E, N}, {N, P}}, emottag, clean, table["emotion"]);
+    // hybrid("35", 5, {{E, N}, {P, N}, {E, P}}, emottag, clean, table["emotion"]);
+    // hybrid("36", 5, {{E, N}, {P, N}, {P, E}}, emottag, clean, table["emotion"]);
+    // hybrid("37", 5, {{E, N}, {N, P}, {E, P}}, emottag, clean, table["emotion"]);
+
+    // table.update("tweet", clean);
+    // table.save("clean.csv");
 
     //const double critical = 9.236400; // 0.1
-    const double critical = 15.0863; // 0.01
+    // const double critical = 15.0863; // 0.01
     //const double critical = 20.515000; // 0.001
-    std::cout << "\nCRITICAL: " << critical << "\n";
+    // std::cout << "\nCRITICAL: " << critical << "\n";
     //cross_validation(5, clean, table["emotion"], critical);
-    peek_cv(5, 1, clean, table["emotion"], critical);
+    // peek_cv(5, 1, clean, table["emotion"], critical);
 
     return 0;
 
