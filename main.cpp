@@ -50,7 +50,7 @@ void generate_mood_dataset(const std::vector<std::string> &text, const std::vect
     }
 }
 
-void hybrid(std::size_t fold, std::vector<std::pair<std::string, std::string>> &arcs, const std::vector<std::string> &texts, const std::vector<std::string> &labels, int seed = 1)
+void hybrid(std::size_t fold, std::vector<std::pair<std::string, std::string>> &arcs, const std::vector<std::string> &texts_emot, const std::vector<std::string> &texts, const std::vector<std::string> &labels, int seed = 1)
 {
     std::vector<int> order(labels.size()) ;
     std::iota (std::begin(order), std::end(order), 0);
@@ -61,32 +61,52 @@ void hybrid(std::size_t fold, std::vector<std::pair<std::string, std::string>> &
     const std::size_t segment = labels.size()/fold;
     for (std::size_t k = 0; k < fold; ++k)
     {
+        pgm::Dataset train_dataset;
+        train_dataset.add_variable("emotion", {":: fear", ":: surprise", ":: joy", ":: sadness", ":: anger", ":: disgust"});
+        train_dataset.add_variable("positive", {"true", "false"});
+        train_dataset.add_variable("negative", {"true", "false"});
+        pgm::Dataset test_dataset;
+        test_dataset.add_variable(train_dataset.variable("emotion"));
+        test_dataset.add_variable(train_dataset.variable("positive"));
+        test_dataset.add_variable(train_dataset.variable("negative"));
+
         std::vector<std::string> train_tweet;
         std::vector<std::string> train_label;
         std::vector<std::string> test_tweet;
         std::vector<std::string> test_label;
         for (std::size_t i = 0; i < order.size(); ++i)
         {
+            std::size_t index = order[i];
+
+            bool positive = false;
+            bool negative = false;
+            positive = positive || (texts_emot[index].find("{{emoticon:joy}}") != std::string::npos);
+            negative = negative || (texts_emot[index].find("{{emoticon:angry}}") != std::string::npos);
+            negative = negative || (texts_emot[index].find("{{emoticon:disgust}}") != std::string::npos);
+            negative = negative || (texts_emot[index].find("{{emoticon:fear}}") != std::string::npos);
+            negative = negative || (texts_emot[index].find("{{emoticon:sadness}}") != std::string::npos);
+            negative = negative || (texts_emot[index].find("{{emoticon:surprise}}") != std::string::npos);
+
             if (i <= k * segment || i > (k + 1) * segment)
             {
-                train_tweet.push_back(texts[order[i]]);
-                train_label.push_back(labels[order[i]]);
+                train_tweet.push_back(texts[index]);
+                train_label.push_back(labels[index]);
+                train_dataset.push({{"emotion", labels[index]}, {"positive", positive ? "true" : "false"}, {"negative", negative ? "true" : "false"}});
             }
             else
             {
                 test_tweet.push_back(texts[order[i]]);
                 test_label.push_back(labels[order[i]]);
+                test_dataset.push({{"emotion", labels[index]}, {"positive", positive ? "true" : "false"}, {"negative", negative ? "true" : "false"}});
             }
         }
         auto train_feature = sm::TermDocFeature(train_label, train_tweet);
-        pgm::Dataset train_dataset; // TODO generate
-        pgm::Dataset test_dataset; // TODO generate
 
         // bayesnet section
         pgm::Bayesnet bn;
-        bn.add_node("emotion", {":: fear", ":: surprise", ":: joy", ":: sadness", ":: anger", ":: disgust"});
-        bn.add_node("positive", {"true", "false"});
-        bn.add_node("negative", {"true", "false"});
+        bn.add_node(train_dataset.variable("emotion"));
+        bn.add_node(train_dataset.variable("positive"));
+        bn.add_node(train_dataset.variable("negative"));
         for (auto arc : arcs)
         {
             bn.add_arc(arc.first, arc.second);
@@ -98,6 +118,40 @@ void hybrid(std::size_t fold, std::vector<std::pair<std::string, std::string>> &
         // multinomial naive bayes section
         sm::NaiveBayes nb;
         nb.train(train_feature);
+
+        std::cout << "==> Testing on Test Data" << std::endl;
+        std::ofstream out(std::to_string(k) + "_test.csv");
+        out << "actual,predict\n";
+        std::size_t correct = 0;
+        for (std::size_t i = 0; i < test_label.size(); ++i)
+        {
+            std::cout << "[" << i << "/" << test_label.size() << "] testing model..." << "\r" << std::flush;
+            
+            std::string predict;
+            double klass_prob = -std::numeric_limits<double>::infinity();
+
+            for (auto state : bn.variable("emotion").states())
+            {
+                double prob = nb.likelihood(test_tweet[i], state, 1.0);
+                auto evidences = test_dataset[i];
+                evidences["emotion"] = state;
+                prob *= bn.query(evidences);
+
+                if (prob > klass_prob)
+                {
+                    klass_prob = prob;
+                    predict = state;
+                }
+            }
+
+            auto actual = test_label[i];
+            out << actual << "," << predict << "\n";
+            if (actual == predict)
+                ++correct;
+        }
+        std::cout << std::endl;
+        std::cout << "Correct : " << correct << "/" << test_label.size() << "\n";
+        std::cout << "Accuracy : " << correct/double(test_label.size()) << "\n";
     }
 }
 
