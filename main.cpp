@@ -26,6 +26,30 @@
 #include <pgm/pgm.h>
 #include <random>
 
+#define MAX_EDGES 2
+
+void generate_mood_dataset(const std::vector<std::string> &text, const std::vector<std::string> &label, const std::string path)
+{
+    std::ofstream out(path);
+    out << "positive,negative,emotion" << std::endl;
+
+    for (std::size_t i = 0; i < text.size(); ++i)
+    {
+        bool positive = false;
+        bool negative = false;
+
+        positive = positive || (text[i].find("{{emoticon:joy}}") != std::string::npos);
+
+        negative = negative || (text[i].find("{{emoticon:angry}}") != std::string::npos);
+        negative = negative || (text[i].find("{{emoticon:disgust}}") != std::string::npos);
+        negative = negative || (text[i].find("{{emoticon:fear}}") != std::string::npos);
+        negative = negative || (text[i].find("{{emoticon:sadness}}") != std::string::npos);
+        negative = negative || (text[i].find("{{emoticon:surprise}}") != std::string::npos);
+
+        out << (positive ? "true" : "false") << "," << (negative ? "true" : "false") << "," << label[i] << std::endl;
+    }
+}
+
 void test_transform(sm::TextTransform &transform)
 {
     std::cout << transform("I i I I&apos;m not http://google.com https:://google.com a supreme &quot;&amp; @aikazm #love leader &lt;3 &gt;&gt;who wants to get to sleep.&quot;") << "\n";
@@ -239,7 +263,7 @@ void timelapse_bn(const sm::TermDocFeature &train_feature, const sm::TermDocFeat
     pgm::Bayesnet bn;
     for (auto v : dataset.variables())
         bn.add_node(v);
-    bn.graph().max_adjacents(2);
+    bn.graph().max_adjacents(MAX_EDGES);
 
     pgm::SimulatedAnnealing annealing(max_iter);
     annealing.init_as_naive_bayes("{{class}}");
@@ -257,7 +281,7 @@ void timelapse_bn(const sm::TermDocFeature &train_feature, const sm::TermDocFeat
 
     {
         std::cout << "==> Testing on Train Data" << std::endl;
-        std::ofstream out(name + "fitness-"+ std::to_string(fitness) + "_train.csv");
+        std::ofstream out(name + "-fitness-"+ std::to_string(fitness) + "_train.csv");
         out << "actual,predict\n";
         std::size_t correct = 0;
         for (std::size_t i = 0; i < dataset.size(); ++i)
@@ -297,7 +321,7 @@ void timelapse_bn(const sm::TermDocFeature &train_feature, const sm::TermDocFeat
         }
 
         std::cout << "==> Testing on Test Data" << std::endl;
-        std::ofstream out(name + "fitness-"+ std::to_string(fitness) + "_test.csv");
+        std::ofstream out(name + "-fitness-"+ std::to_string(fitness) + "_test.csv");
         out << "actual,predict\n";
         std::size_t correct = 0;
         for (std::size_t i = start; i < dataset.size(); ++i)
@@ -354,12 +378,12 @@ void peek_cv(std::size_t fold, std::size_t k, const std::vector<std::string> &tw
     auto selected = fselect.range(critical_value);
     std::cout << "selected train vocab : " << selected.get().storage().size() << std::endl;;
 
-    for (std::size_t iter = 100; iter <= 5000; iter += 100)
+    for (std::size_t iter = 0; iter <= 5000; iter += 200)
     {
         std::cout << "======================================\n";
         std::cout << "ITER MAX = " << iter << "\n";
         std::cout << "======================================\n";
-        timelapse_bn(selected, test_feature, "bn-fold-" + std::to_string(k) + "-cv-" + std::to_string(critical_value), iter);
+        timelapse_bn(selected, test_feature, "bn-fold-" + std::to_string(k) + "-iter-" + std::to_string(iter) + "-cv-" + std::to_string(critical_value), iter);
     }
 }
 
@@ -382,7 +406,7 @@ void learn_bn(const sm::TermDocFeature &train_feature, const sm::TermDocFeature 
     pgm::Bayesnet bn;
     for (auto v : dataset.variables())
         bn.add_node(v);
-    bn.graph().max_adjacents(3);
+    bn.graph().max_adjacents(MAX_EDGES);
 
     pgm::SimulatedAnnealing annealing(5000);
     annealing.init_as_naive_bayes("{{class}}");
@@ -489,14 +513,14 @@ int main(int argc, char *argv[])
 {
     sm::TextTransform transform;
     transform.add(sm::transform::HTMLEscape());
-    transform.add(sm::transform::Blacklist());
+    //transform.add(sm::transform::Blacklist());
     transform.add(sm::transform::Apostrophe());
-    //transform.add(sm::transform::Emoticon());
+    transform.add(sm::transform::Emoticon());
     transform.add(sm::transform::Username());
     transform.add(sm::transform::Url());
     transform.add(sm::transform::Money());
     transform.add(sm::transform::Number());
-    transform.add(sm::transform::Blacklist());
+    //transform.add(sm::transform::Blacklist());
     transform.add(sm::transform::Repeats());
     transform.add(sm::transform::Blacklist());
     transform.add(sm::transform::Stem());
@@ -507,11 +531,18 @@ int main(int argc, char *argv[])
 
     auto table = sm::Table::load("Jan9-2012-tweets-clean.csv");
     auto clean = transform(table["tweet"]);
+
+    //generate_mood_dataset(clean, table["emotion"], "mood.csv");
+
     table.update("tweet", clean);
     table.save("clean.csv");
 
-    // cross_validation(10, clean, table["emotion"], 15.0863);
-    peek_cv(10, 1, clean, table["emotion"], 15.0863);
+    //const double critical = 9.236400; // 0.1
+    const double critical = 15.0863; // 0.01
+    //const double critical = 20.515000; // 0.001
+    std::cout << "\nCRITICAL: " << critical << "\n";
+    //cross_validation(5, clean, table["emotion"], critical);
+    peek_cv(5, 1, clean, table["emotion"], critical);
 
     return 0;
 

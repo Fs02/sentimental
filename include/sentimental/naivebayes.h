@@ -11,6 +11,7 @@ namespace sm {
 
         void train(const TermDocFeature &feature);
         std::string predict(const std::string &text) const;
+        double likelihood(const std::string &text, const std::string &klass, double prior) const;
 
         double prior(const std::string &klass) const;
         double probability(const std::string &word, const std::string &klass) const;

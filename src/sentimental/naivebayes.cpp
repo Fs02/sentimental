@@ -57,6 +57,19 @@ std::string NaiveBayes::predict(const std::string &text) const
     return klass;
 }
 
+double NaiveBayes::likelihood(const std::string &text, const std::string &klass, double prior) const
+{
+    WordCount counter(text);
+    double prob = std::log(prior);
+    for (auto w_it = counter.container().begin(); w_it != counter.container().end(); ++w_it)
+    {
+        prob += std::log(probability(w_it->first, klass)) * w_it->second;
+    }
+
+    return std::exp(prob);
+}
+
+
 double NaiveBayes::prior(const std::string &klass) const
 {
     auto it = class_count_.find(klass);
