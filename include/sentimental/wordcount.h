@@ -8,9 +8,9 @@ namespace sm {
     class WordCount
     {
     public:
-        WordCount();
-        WordCount(const std::vector<std::string> &texts);
-        WordCount(const std::string &text);
+        WordCount(std::size_t ngrams = 1);
+        WordCount(const std::vector<std::string> &texts, std::size_t ngrams = 1);
+        WordCount(const std::string &text, std::size_t ngrams = 1);
 
         std::size_t operator [](const std::string &word) const;
 
@@ -21,6 +21,7 @@ namespace sm {
 
     private:
         std::unordered_map<std::string, std::size_t> counts_;
+        std::size_t ngrams_;
     };
 }
 
