@@ -5,17 +5,18 @@
 #include <algorithm>
 #include <functional>
 #include <iostream>
+#include <list>
 
 using namespace sm;
 
-TermDoc::TermDoc(const std::vector<std::string> &texts)
-    : storage_(), documents_(), last_document_(0)
+TermDoc::TermDoc(const std::vector<std::string> &texts, std::size_t ngrams)
+    : storage_(), documents_(), last_document_(0), ngrams_(ngrams)
 {
     pack(texts);
 }
 
-TermDoc::TermDoc(const std::unordered_map<std::string, Doc> &storage)
-    : storage_(storage), documents_(), last_document_(0)
+TermDoc::TermDoc(const std::unordered_map<std::string, Doc> &storage, std::size_t ngrams)
+    : storage_(storage), documents_(), last_document_(0), ngrams_(ngrams)
 {
     for (auto word : storage)
     {
@@ -28,7 +29,7 @@ TermDoc::TermDoc(const std::unordered_map<std::string, Doc> &storage)
 }
 
 TermDoc::TermDoc(const DocTerm &docterm)
-    : storage_(), documents_(), last_document_(0)
+    : storage_(), documents_(), last_document_(0), ngrams_(1)
 {
     for (auto doc : docterm.storage())
     {
@@ -45,6 +46,7 @@ void TermDoc::pack(const std::string &text)
 {
     std::stringstream ss(text);
     std::string token;
+    std::list<std::string> words;
 
     while(std::getline(ss, token, ' '))
     {
@@ -54,7 +56,12 @@ void TermDoc::pack(const std::string &text)
             continue;
 
         std::transform(token.begin(), token.end(), token.begin(), ::tolower);
-        storage_[token][last_document_] += 1;
+        words.push_back(token);
+        if (words.size() == ngrams_)
+        {
+            storage_[join(words.begin(), words.end(), std::string(" "))][last_document_] += 1;
+            words.pop_front();
+        }
     }
     documents_.insert(last_document_);
     last_document_ += 1;

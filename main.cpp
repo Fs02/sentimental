@@ -52,10 +52,11 @@ void generate_mood_dataset(const std::vector<std::string> &text, const std::vect
 
 void hybrid(const std::string &name, std::size_t fold, const std::vector<std::pair<std::string, std::string>> &arcs, const std::vector<std::string> &texts_emot, const std::vector<std::string> &texts, const std::vector<std::string> &labels, int seed = 1)
 {
+    std::cout << "\n===> " << name << "\n";
     // generate graph
     {
         std::ofstream out(name + ".dot");
-        out << "digraph { subgraph cluster_0 { label=\"tweet\"; word; } emotion; positive; negative;";
+        out << "digraph { subgraph cluster_0 { label=\"tweet\"; word; } emotion -> word; ";
         for (auto arc : arcs)
         {
             out << arc.first << " -> " << arc.second << "; ";
@@ -111,7 +112,7 @@ void hybrid(const std::string &name, std::size_t fold, const std::vector<std::pa
                 test_dataset.push({{"emotion", labels[index]}, {"positive", positive ? "true" : "false"}, {"negative", negative ? "true" : "false"}});
             }
         }
-        auto train_feature = sm::TermDocFeature(train_label, train_tweet);
+        auto train_feature = sm::TermDocFeature(train_label, train_tweet, 2);
 
         // bayesnet section
         pgm::Bayesnet bn;
@@ -137,7 +138,7 @@ void hybrid(const std::string &name, std::size_t fold, const std::vector<std::pa
         for (std::size_t i = 0; i < test_label.size(); ++i)
         {
             std::cout << "[" << i << "/" << test_label.size() << "] testing model..." << "\r" << std::flush;
-            
+
             std::string predict;
             double klass_prob = -std::numeric_limits<double>::infinity();
 
@@ -284,6 +285,81 @@ void export_blip_dat(const sm::TermDocFeature &feature, const std::string &path)
     }
 }
 
+void accuracy(const pgm::Bayesnet &bn, pgm::Dataset &dataset, const std::string &name) {
+    std::cout << "==> Testing " << name << std::endl;
+    std::ofstream out(name + ".csv");
+    out << "actual,predict\n";
+    std::size_t correct = 0;
+    for (std::size_t i = 0; i < dataset.size(); ++i)
+    {
+        std::cout << "[" << i+1 << "/" << dataset.size() << "] testing model..." << "\r" << std::flush;
+        auto row = dataset[i];
+
+        auto actual = row["{{class}}"];
+        auto predict = bn.infer("{{class}}", row);
+        out << actual << "," << predict << "\n";
+        if (actual == predict)
+            ++correct;
+    }
+    std::cout << std::endl;
+    std::cout << "Correct : " << correct << "/" << dataset.size() << "\n";
+    std::cout << "Accuracy : " << correct/double(dataset.size()) << "\n";
+}
+
+void erika(const sm::TermDocFeature &train_feature, const sm::TermDocFeature &test_feature, double temp, const std::string &name)
+{
+    std::cout << "preparing datasets" << std::endl;
+    pgm::Dataset dataset;
+    pgm::Dataset test_dataset;
+    for (std::size_t i = 0; i < train_feature.labels().size(); ++i)
+    {
+        dataset.set("{{class}}", i, train_feature.labels()[i]);
+    }
+    for (auto w : train_feature.get().storage())
+    {
+        dataset.add_variable(w.first, {"F", "T"});
+        test_dataset.add_variable(w.first, {"F", "T"});
+        for (auto doc : w.second)
+            dataset.set(w.first, doc.first, "T");
+    }
+
+    for (std::size_t i = 0; i < test_feature.labels().size(); ++i)
+    {
+        test_dataset.set("{{class}}", i, test_feature.labels()[i]);
+    }
+    for (auto w : test_feature.get().storage())
+    {
+        test_dataset.add_variable(w.first, {"F", "T"});
+        for (auto doc : w.second)
+            test_dataset.set(w.first, doc.first, "T");
+    }
+
+    std::cout << "constructing bn" << std::endl;
+    pgm::Bayesnet bn;
+    for (auto v : dataset.variables())
+        bn.add_node(v);
+    bn.graph().max_adjacents(MAX_EDGES);
+
+    std::cout.precision(17);
+    pgm::SimulatedAnnealing annealing(50000, temp);
+    annealing.init_as_naive_bayes("{{class}}");
+    annealing.verbose(true);
+    pgm::Fcll score(dataset, "{{class}}");
+    pgm::SampleEstimate estimate;
+
+    std::cout << "searching best structure" << std::endl;
+    annealing(bn, score, [&dataset, &test_dataset, &name, &estimate, &temp](const pgm::Bayesnet &bayesnet, double score, std::size_t iter, double tempf) {
+        if (iter == 0 || iter == 49999) {
+            std::cout << "==> " << iter << "\n";
+            pgm::Bayesnet bn = bayesnet;
+            estimate(bn, dataset);
+            accuracy(bn, dataset, std::to_string(iter) + "_" + name + "_train");
+            accuracy(bn, test_dataset, std::to_string(iter) + + "_" + name + "_test");
+            pgm::write_dot(bn, std::to_string(iter) + "_" + name + ".dot");
+        }
+    });
+}
+
 void learn_nb(const sm::TermDocFeature &train_feature, const sm::TermDocFeature &test_feature, const std::string &name)
 {
     std::cout << "preparing datasets" << std::endl;
@@ -303,7 +379,6 @@ void learn_nb(const sm::TermDocFeature &train_feature, const sm::TermDocFeature 
     pgm::Bayesnet bn;
     for (auto v : dataset.variables())
         bn.add_node(v);
-
     pgm::SimulatedAnnealing annealing(0);
     annealing.init_as_naive_bayes("{{class}}");
     annealing.verbose(false);
@@ -327,16 +402,9 @@ void learn_nb(const sm::TermDocFeature &train_feature, const sm::TermDocFeature 
         }
         for (auto w : test_feature.get().storage())
         {
-            if (!dataset.add_variable(w.first, {"F", "T"}))
-            {
-		        for (auto doc : w.second)
-		            dataset.set(w.first, start+doc.first, "T");
-            }
-            else
-            {
-            	// if unused, remvoe it
-            	dataset.rem_variable(w.first);
-            }
+            dataset.add_variable(w.first, {"F", "T"});
+            for (auto doc : w.second)
+                dataset.set(w.first, start+doc.first, "T");
         }
 
         std::cout << "==> Testing on Test Data" << std::endl;
@@ -381,7 +449,8 @@ void timelapse_bn(const sm::TermDocFeature &train_feature, const sm::TermDocFeat
         bn.add_node(v);
     bn.graph().max_adjacents(MAX_EDGES);
 
-    pgm::SimulatedAnnealing annealing(max_iter);
+    std::cout.precision(17);
+    pgm::SimulatedAnnealing annealing(max_iter, 1e5);
     annealing.init_as_naive_bayes("{{class}}");
     annealing.verbose(true);
     pgm::Fcll score(dataset, "{{class}}");
@@ -395,26 +464,27 @@ void timelapse_bn(const sm::TermDocFeature &train_feature, const sm::TermDocFeat
 
     //std::cout << bn << std::endl;
 
-    {
-        std::cout << "==> Testing on Train Data" << std::endl;
-        std::ofstream out(name + "-fitness-"+ std::to_string(fitness) + "_train.csv");
-        out << "actual,predict\n";
-        std::size_t correct = 0;
-        for (std::size_t i = 0; i < dataset.size(); ++i)
-        {
-            std::cout << "[" << i+1 << "/" << dataset.size() << "] testing model..." << "\r" << std::flush;
-            auto row = dataset[i];
+    // {
+    //     std::cout << "==> Testing on Train Data" << std::endl;
+    //     std::ofstream out(name + "-fitness-"+ std::to_string(fitness) + "_train.csv");
+    //     out << "actual,predict\n";
+    //     std::size_t correct = 0;
+    //     for (std::size_t i = 0; i < dataset.size(); ++i)
+    //     {
+    //         std::cout << "[" << i+1 << "/" << dataset.size() << "] testing model..." << "\r" << std::flush;
+    //         auto row = dataset[i];
 
-            auto actual = row["{{class}}"];
-            auto predict = bn.infer("{{class}}", row);
-            out << actual << "," << predict << "\n";
-            if (actual == predict)
-                ++correct;
-        }
-        std::cout << std::endl;
-        std::cout << "Correct : " << correct << "/" << dataset.size() << "\n";
-        std::cout << "Accuracy : " << correct/double(dataset.size()) << "\n";        
-    }
+    //         auto actual = row["{{class}}"];
+    //         auto predict = bn.infer("{{class}}", row);
+    //         out << actual << "," << predict << "\n";
+    //         if (actual == predict)
+    //             ++correct;
+    //     }
+    //     std::cout << std::endl;
+    //     std::cout << "Correct : " << correct << "/" << dataset.size() << "\n";
+    //     std::cout << "Accuracy : " << correct/double(dataset.size()) << "\n";
+    // }
+
 
     {
         std::size_t start = dataset.size();
@@ -424,16 +494,20 @@ void timelapse_bn(const sm::TermDocFeature &train_feature, const sm::TermDocFeat
         }
         for (auto w : test_feature.get().storage())
         {
-            if (!dataset.add_variable(w.first, {"F", "T"}))
-            {
-		        for (auto doc : w.second)
-		            dataset.set(w.first, start+doc.first, "T");            	
-            }
-            else
-            {
-            	// if unused, remvoe it
-            	dataset.rem_variable(w.first);
-            }
+            dataset.add_variable(w.first, {"F", "T"});
+            for (auto doc : w.second)
+                dataset.set(w.first, start+doc.first, "T");
+
+            // if (!dataset.add_variable(w.first, {"F", "T"}))
+            // {
+		    //     for (auto doc : w.second)
+		    //         dataset.set(w.first, start+doc.first, "T");
+            // }
+            // else
+            // {
+            // 	// if unused, remvoe it
+            // 	dataset.rem_variable(w.first);
+            // }
         }
 
         std::cout << "==> Testing on Test Data" << std::endl;
@@ -453,11 +527,11 @@ void timelapse_bn(const sm::TermDocFeature &train_feature, const sm::TermDocFeat
         }
         std::cout << std::endl;
         std::cout << "Correct : " << correct << "/" << dataset.size()-start << "\n";
-        std::cout << "Accuracy : " << correct/double(dataset.size()-start) << "\n";        
+        std::cout << "Accuracy : " << correct/double(dataset.size()-start) << "\n";
     }
 }
 
-void peek_cv(std::size_t fold, std::size_t k, const std::vector<std::string> &tweets, const std::vector<std::string> &labels, 
+void peek_cv(std::size_t fold, std::size_t k, const std::vector<std::string> &tweets, const std::vector<std::string> &labels,
     double critical_value, int seed = 1)
 {
     // shuffle dataset order
@@ -494,7 +568,7 @@ void peek_cv(std::size_t fold, std::size_t k, const std::vector<std::string> &tw
     auto selected = fselect.range(critical_value);
     std::cout << "selected train vocab : " << selected.get().storage().size() << std::endl;;
 
-    for (std::size_t iter = 0; iter <= 5000; iter += 200)
+    for (std::size_t iter = 0; iter <= 50000; iter += 50000)
     {
         std::cout << "======================================\n";
         std::cout << "ITER MAX = " << iter << "\n";
@@ -503,7 +577,7 @@ void peek_cv(std::size_t fold, std::size_t k, const std::vector<std::string> &tw
     }
 }
 
-void learn_bn(const sm::TermDocFeature &train_feature, const sm::TermDocFeature &test_feature, const std::string &name)
+void learn_bn(const sm::TermDocFeature &train_feature, const sm::TermDocFeature &test_feature, double temp, const std::string &name)
 {
     std::cout << "preparing datasets" << std::endl;
     pgm::Dataset dataset;
@@ -524,14 +598,17 @@ void learn_bn(const sm::TermDocFeature &train_feature, const sm::TermDocFeature 
         bn.add_node(v);
     bn.graph().max_adjacents(MAX_EDGES);
 
-    pgm::SimulatedAnnealing annealing(5000);
+    std::cout.precision(17);
+    pgm::SimulatedAnnealing annealing(50000, temp);
     annealing.init_as_naive_bayes("{{class}}");
     annealing.verbose(false);
     pgm::Fcll score(dataset, "{{class}}");
     pgm::SampleEstimate estimate;
 
     std::cout << "searching best structure" << std::endl;
-    annealing(bn, score);
+    annealing(bn, score, [](const pgm::Bayesnet &bayesnet, double score, std::size_t iter, double temp) {
+        std::cout << "iter: " << iter << "\n";
+    });
     std::cout << "estimating distributions" << std::endl;
     estimate(bn, dataset);
     pgm::write_dot(bn, name + ".dot");
@@ -546,16 +623,9 @@ void learn_bn(const sm::TermDocFeature &train_feature, const sm::TermDocFeature 
         }
         for (auto w : test_feature.get().storage())
         {
-            if (!dataset.add_variable(w.first, {"F", "T"}))
-            {
-		        for (auto doc : w.second)
-		            dataset.set(w.first, start+doc.first, "T");            	
-            }
-            else
-            {
-            	// if unused, remvoe it
-            	dataset.rem_variable(w.first);
-            }
+            dataset.add_variable(w.first, {"F", "T"});
+            for (auto doc : w.second)
+                dataset.set(w.first, start+doc.first, "T");
         }
 
         std::cout << "==> Testing on Test Data" << std::endl;
@@ -575,12 +645,12 @@ void learn_bn(const sm::TermDocFeature &train_feature, const sm::TermDocFeature 
         }
         std::cout << std::endl;
         std::cout << "Correct : " << correct << "/" << dataset.size()-start << "\n";
-        std::cout << "Accuracy : " << correct/double(dataset.size()-start) << "\n";        
+        std::cout << "Accuracy : " << correct/double(dataset.size()-start) << "\n";
     }
 }
 
-void cross_validation(std::size_t fold, const std::vector<std::string> &tweets, const std::vector<std::string> &labels, 
-    double critical_value, int seed = 1)
+void cross_validation(std::size_t fold, const std::vector<std::string> &tweets, const std::vector<std::string> &labels,
+    double critical_value, double temp, int seed = 1)
 {
     // shuffle dataset order
     std::vector<int> order(labels.size()) ;
@@ -618,10 +688,11 @@ void cross_validation(std::size_t fold, const std::vector<std::string> &tweets, 
         auto selected = fselect.range(critical_value);
         std::cout << "selected train vocab : " << selected.get().storage().size() << std::endl;;
 
-        std::cout << "\n\n====> naive bayes" << std::endl;
-        learn_nb(selected, test_feature, "nb-fold-" + std::to_string(k) + "-cv-" + std::to_string(critical_value));
-        std::cout << "\n\n====> bayes net" << std::endl;
-        learn_bn(selected, test_feature, "bn-fold-" + std::to_string(k) + "-cv-" + std::to_string(critical_value));
+        erika(selected, test_feature, temp, "fold_" + std::to_string(k) + "_cv_" + std::to_string(critical_value) + "_temp_" + std::to_string(temp));
+        // std::cout << "\n\n====> naive bayes" << std::endl;
+        // learn_nb(selected, test_feature, "nb-fold-" + std::to_string(k) + "-cv-" + std::to_string(critical_value) + "-temp-" + std::to_string(temp));
+        // std::cout << "\n\n====> bayes net" << std::endl;
+        // learn_bn(selected, test_feature, temp, "bn-fold-" + std::to_string(k) + "-cv-" + std::to_string(critical_value) + "-temp-" + std::to_string(temp));
     }
 }
 
@@ -678,49 +749,49 @@ int main(int argc, char *argv[])
     // hybrid(5, {{"positive", "emotion"}, {"negative", "emotion"}}, emottag, clean, table["emotion"]);
 
     const std::string E = "emotion";
-    const std::string P = "emotion";
-    const std::string N = "emotion";
+    const std::string P = "positive";
+    const std::string N = "negative";
 
-    hybrid("1", 5, {}, emottag, clean, table["emotion"]);
+    // hybrid("1", 5, {}, emottag, clean, table["emotion"]);
 
-    hybrid("2", 5, {{E, P}}, emottag, clean, table["emotion"]);
-    hybrid("3", 5, {{E, P}, {E, N}}, emottag, clean, table["emotion"]);
-    hybrid("4", 5, {{E, P}, {N, E}}, emottag, clean, table["emotion"]);
-    hybrid("5", 5, {{E, P}, {E, N}, {N, P}}, emottag, clean, table["emotion"]);
-    hybrid("6", 5, {{E, P}, {E, N}, {P, N}}, emottag, clean, table["emotion"]);
-    hybrid("7", 5, {{E, P}, {N, E}, {N, P}}, emottag, clean, table["emotion"]);
+    // hybrid("2", 5, {{E, P}}, emottag, clean, table["emotion"]);
+    // hybrid("3", 5, {{E, P}, {E, N}}, emottag, clean, table["emotion"]);
+    // hybrid("4", 5, {{E, P}, {N, E}}, emottag, clean, table["emotion"]);
+    // hybrid("5", 5, {{E, P}, {E, N}, {N, P}}, emottag, clean, table["emotion"]);
+    // hybrid("6", 5, {{E, P}, {E, N}, {P, N}}, emottag, clean, table["emotion"]);
+    // hybrid("7", 5, {{E, P}, {N, E}, {N, P}}, emottag, clean, table["emotion"]);
 
-    hybrid("8", 5, {{P, E}}, emottag, clean, table["emotion"]);
-    hybrid("9", 5, {{P, E}, {N, E}}, emottag, clean, table["emotion"]);
-    hybrid("10", 5, {{P, E}, {E, N}}, emottag, clean, table["emotion"]);
-    hybrid("11", 5, {{P, E}, {N, E}, {P, N}}, emottag, clean, table["emotion"]);
-    hybrid("12", 5, {{P, E}, {N, E}, {N, P}}, emottag, clean, table["emotion"]);
-    hybrid("13", 5, {{P, E}, {E, N}, {P, N}}, emottag, clean, table["emotion"]);
+    // hybrid("8", 5, {{P, E}}, emottag, clean, table["emotion"]);
+    // hybrid("9", 5, {{P, E}, {N, E}}, emottag, clean, table["emotion"]);
+    // hybrid("10", 5, {{P, E}, {E, N}}, emottag, clean, table["emotion"]);
+    // hybrid("11", 5, {{P, E}, {N, E}, {P, N}}, emottag, clean, table["emotion"]);
+    // hybrid("12", 5, {{P, E}, {N, E}, {N, P}}, emottag, clean, table["emotion"]);
+    // hybrid("13", 5, {{P, E}, {E, N}, {P, N}}, emottag, clean, table["emotion"]);
 
-    hybrid("14", 5, {{P, N}}, emottag, clean, table["emotion"]);
-    hybrid("15", 5, {{P, N}, {P, E}}, emottag, clean, table["emotion"]);
-    hybrid("16", 5, {{P, N}, {E, P}}, emottag, clean, table["emotion"]);
-    hybrid("17", 5, {{P, N}, {P, E}, {E, N}}, emottag, clean, table["emotion"]);
-    hybrid("18", 5, {{P, N}, {P, E}, {N, E}}, emottag, clean, table["emotion"]);
-    hybrid("19", 5, {{P, N}, {E, P}, {E, N}}, emottag, clean, table["emotion"]);
+    // hybrid("14", 5, {{P, N}}, emottag, clean, table["emotion"]);
+    // hybrid("15", 5, {{P, N}, {P, E}}, emottag, clean, table["emotion"]);
+    // hybrid("16", 5, {{P, N}, {E, P}}, emottag, clean, table["emotion"]);
+    // hybrid("17", 5, {{P, N}, {P, E}, {E, N}}, emottag, clean, table["emotion"]);
+    // hybrid("18", 5, {{P, N}, {P, E}, {N, E}}, emottag, clean, table["emotion"]);
+    // hybrid("19", 5, {{P, N}, {E, P}, {E, N}}, emottag, clean, table["emotion"]);
 
-    hybrid("20", 5, {{N, P}}, emottag, clean, table["emotion"]);
-    hybrid("21", 5, {{N, P}, {E, P}}, emottag, clean, table["emotion"]);
-    hybrid("22", 5, {{N, P}, {P, E}}, emottag, clean, table["emotion"]);
-    // hybrid("23", 5, {{N, P}, {E, P}, {N, E}}, emottag, clean, table["emotion"]);
-    // hybrid("24", 5, {{N, P}, {E, P}, {E, N}}, emottag, clean, table["emotion"]);
-    // hybrid("25", 5, {{N, P}, {P, E}, {N, E}}, emottag, clean, table["emotion"]);
+    // hybrid("20", 5, {{N, P}}, emottag, clean, table["emotion"]);
+    // hybrid("21", 5, {{N, P}, {E, P}}, emottag, clean, table["emotion"]);
+    // hybrid("22", 5, {{N, P}, {P, E}}, emottag, clean, table["emotion"]);
+    // // hybrid("23", 5, {{N, P}, {E, P}, {N, E}}, emottag, clean, table["emotion"]);
+    // // hybrid("24", 5, {{N, P}, {E, P}, {E, N}}, emottag, clean, table["emotion"]);
+    // // hybrid("25", 5, {{N, P}, {P, E}, {N, E}}, emottag, clean, table["emotion"]);
 
-    hybrid("26", 5, {{N, E}}, emottag, clean, table["emotion"]);
-    hybrid("27", 5, {{N, E}, {N, P}}, emottag, clean, table["emotion"]);
-    hybrid("28", 5, {{N, E}, {P, N}}, emottag, clean, table["emotion"]);
+    // hybrid("26", 5, {{N, E}}, emottag, clean, table["emotion"]);
+    // hybrid("27", 5, {{N, E}, {N, P}}, emottag, clean, table["emotion"]);
+    // hybrid("28", 5, {{N, E}, {P, N}}, emottag, clean, table["emotion"]);
     // hybrid("29", 5, {{N, E}, {N, P}, {P, E}}, emottag, clean, table["emotion"]);
     // hybrid("30", 5, {{N, E}, {N, P}, {E, P}}, emottag, clean, table["emotion"]);
     // hybrid("31", 5, {{N, E}, {P, N}, {P, E}}, emottag, clean, table["emotion"]);
 
-    hybrid("32", 5, {{E, N}}, emottag, clean, table["emotion"]);
-    hybrid("33", 5, {{E, N}, {P, N}}, emottag, clean, table["emotion"]);
-    hybrid("34", 5, {{E, N}, {N, P}}, emottag, clean, table["emotion"]);
+    // hybrid("32", 5, {{E, N}}, emottag, clean, table["emotion"]);
+    // hybrid("33", 5, {{E, N}, {P, N}}, emottag, clean, table["emotion"]);
+    // hybrid("34", 5, {{E, N}, {N, P}}, emottag, clean, table["emotion"]);
     // hybrid("35", 5, {{E, N}, {P, N}, {E, P}}, emottag, clean, table["emotion"]);
     // hybrid("36", 5, {{E, N}, {P, N}, {P, E}}, emottag, clean, table["emotion"]);
     // hybrid("37", 5, {{E, N}, {N, P}, {E, P}}, emottag, clean, table["emotion"]);
@@ -729,10 +800,21 @@ int main(int argc, char *argv[])
     // table.save("clean.csv");
 
     //const double critical = 9.236400; // 0.1
-    // const double critical = 15.0863; // 0.01
+    const double critical = 15.0863; // 0.01
     //const double critical = 20.515000; // 0.001
-    // std::cout << "\nCRITICAL: " << critical << "\n";
-    //cross_validation(5, clean, table["emotion"], critical);
+    std::cout << "\nCRITICAL: " << critical << "\n";
+
+    // const double temp = 5e4;
+    const double temp = 1e5;
+    // const double temp = 2.5e5;
+    // const double temp = 5e5;
+    // const double temp = 7.5e5;
+    // const double temp = 1e6;
+    // const double temp = 5e6;
+    // const double temp = 1e7;
+    std::cout << "\nTEMP: " << temp << "\n";
+
+    cross_validation(5, clean, table["emotion"], critical, temp);
     // peek_cv(5, 1, clean, table["emotion"], critical);
 
     return 0;

@@ -1,22 +1,10 @@
 #include <sentimental/wordcount.h>
+#include <sentimental/utility.h>
 #include <sstream>
 #include <algorithm>
 #include <list>
 
 using namespace sm;
-
-template <class T, class A>
-T join(const A &begin, const A &end, const T &t)
-{
-    T result;
-    for (A it=begin; it!=end; it++)
-    {
-        if (!result.empty())
-            result.append(t);
-        result.append(*it);
-    }
-    return result;
-}
 
 WordCount::WordCount(std::size_t ngrams)
     : counts_(), ngrams_(ngrams)
@@ -57,6 +45,11 @@ WordCount &WordCount::operator <<(const std::string &text)
 
     while(std::getline(ss, token, ' '))
     {
+        token = trim(token);
+
+        if (token == "")
+            continue;
+
         std::transform(token.begin(), token.end(), token.begin(), ::tolower);
         words.push_back(token);
         if (words.size() == ngrams_)

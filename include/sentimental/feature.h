@@ -11,8 +11,8 @@ namespace sm {
     class Feature
     {
     public:
-        explicit Feature(const std::vector<std::string> &labels, const std::vector<std::string> &texts)
-            : labels_(labels), storage_(texts)
+        explicit Feature(const std::vector<std::string> &labels, const std::vector<std::string> &texts, std::size_t ngrams = 1)
+            : labels_(labels), storage_(texts, ngrams)
         {}
 
         Feature(const std::vector<std::string> &labels, const Storage &storage)

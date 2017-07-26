@@ -23,6 +23,7 @@ namespace sm {
         std::unordered_map<std::string, std::size_t> class_count_;
         std::unordered_map<std::string, std::size_t> document_length_;
         std::unordered_map<std::string, std::unordered_map<std::string, std::size_t>> word_count_;
+        std::size_t ngrams_;
     };
 }
 

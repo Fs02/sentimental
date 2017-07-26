@@ -6,7 +6,7 @@
 using namespace sm;
 
 NaiveBayes::NaiveBayes()
-    : total_documents_(0)
+    : total_documents_(0), ngrams_(1)
 {}
 
 void NaiveBayes::train(const TermDocFeature &feature)
@@ -31,6 +31,7 @@ void NaiveBayes::train(const TermDocFeature &feature)
     }
 
     total_documents_ += labels.size();
+    ngrams_ = feature.get().ngrams();
 }
 
 std::string NaiveBayes::predict(const std::string &text) const
@@ -38,7 +39,7 @@ std::string NaiveBayes::predict(const std::string &text) const
     std::string klass;
     double klass_prob = -std::numeric_limits<double>::infinity();
 
-    WordCount counter(text);
+    WordCount counter(text, ngrams_);
 
     for (auto c_it = class_count_.begin(); c_it != class_count_.end(); ++c_it)
     {
@@ -59,7 +60,7 @@ std::string NaiveBayes::predict(const std::string &text) const
 
 double NaiveBayes::likelihood(const std::string &text, const std::string &klass, double prior) const
 {
-    WordCount counter(text);
+    WordCount counter(text, ngrams_);
     double prob = std::log(prior);
     for (auto w_it = counter.container().begin(); w_it != counter.container().end(); ++w_it)
     {
@@ -95,7 +96,7 @@ double NaiveBayes::probability(const std::string &word, const std::string &klass
            word_count = c_w_it->second;
     }
 
-    return (double)(word_count + 1)/(d_it->second + word_count_.size());
+    return (double)(word_count + 1)/double(d_it->second + word_count_.size());
 }
 
 Json::Value NaiveBayes::serialize(const NaiveBayes &naivebayes)

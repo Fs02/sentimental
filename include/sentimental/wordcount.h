@@ -18,6 +18,7 @@ namespace sm {
 
         std::unordered_map<std::string, std::size_t> &container();
         const std::unordered_map<std::string, std::size_t> &container() const;
+        inline std::size_t ngrams() const { return ngrams_; }
 
     private:
         std::unordered_map<std::string, std::size_t> counts_;
