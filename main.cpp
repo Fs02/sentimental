@@ -349,7 +349,7 @@ void erika(const sm::TermDocFeature &train_feature, const sm::TermDocFeature &te
 
     std::cout << "searching best structure" << std::endl;
     annealing(bn, score, [&dataset, &test_dataset, &name, &estimate, &temp](const pgm::Bayesnet &bayesnet, double score, std::size_t iter, double tempf) {
-        if (iter == 0 || iter == 49999) {
+        if (iter == 0 || iter % 1000 == 999) {
             std::cout << "==> " << iter << "\n";
             pgm::Bayesnet bn = bayesnet;
             estimate(bn, dataset);
@@ -799,9 +799,9 @@ int main(int argc, char *argv[])
     // table.update("tweet", clean);
     // table.save("clean.csv");
 
-    //const double critical = 9.236400; // 0.1
+    // const double critical = 9.236400; // 0.1
     const double critical = 15.0863; // 0.01
-    //const double critical = 20.515000; // 0.001
+    // const double critical = 20.515000; // 0.001
     std::cout << "\nCRITICAL: " << critical << "\n";
 
     // const double temp = 5e4;
